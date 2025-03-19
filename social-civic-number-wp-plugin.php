@@ -101,3 +101,45 @@ function add_social_civic_number_to_email_prints( $message ){
     die;
     return $message;
 }
+function custom_remove_shipping_charge_if_categories_present($rates, $package) {
+    // List of category slugs that should trigger free shipping
+    $target_categories = array(
+        'mobilabonnemang',
+        'studentabonnemang',
+        'familjeabonnemang',
+        'foretagsabonnemang'
+    );
+
+    $cart_has_target_category = false;
+
+    // Loop through cart items
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $product_categories = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+
+        // Check if any of the product categories are in the target list
+        if (array_intersect($target_categories, $product_categories)) {
+            $cart_has_target_category = true;
+            break;
+        }
+    }
+
+    // If any of the target categories exist in the cart, set shipping cost to 0
+    if ($cart_has_target_category) {
+        foreach ($rates as $rate_key => $rate) {
+            $rates[$rate_key]->cost = 0;
+            if (isset($rates[$rate_key]->taxes)) {
+                $rates[$rate_key]->taxes = array_map(fn($tax) => 0, $rates[$rate_key]->taxes);
+            }
+        }
+    }
+
+    return $rates;
+}
+add_filter('woocommerce_package_rates', 'custom_remove_shipping_charge_if_categories_present', 10, 2);
+
+// // Force cart total recalculation when updating shipping cost
+// function force_cart_total_recalculation() {
+//     WC()->cart->calculate_totals();
+// }
+// add_action('woocommerce_before_calculate_totals', 'force_cart_total_recalculation', 10);
