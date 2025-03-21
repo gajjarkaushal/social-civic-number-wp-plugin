@@ -14,84 +14,125 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-
-// Add the Social Civic Number field at the beginning of the billing form for smartphone subscriptions
-add_filter('woocommerce_checkout_fields', 'add_social_civic_number_field_first');
-function add_social_civic_number_field_first($fields) {
-    $saved_value = WC()->session->get('social_civic_number', '');
-    $social_civic_field = array(
-        'social_civic_number' => array(
+// Add the Social Civic Number and Organization Number fields only for specific product categories
+add_filter('woocommerce_checkout_fields', 'conditionally_add_social_civic_and_org_number_fields');
+function conditionally_add_social_civic_and_org_number_fields($fields) {
+    $categories_civic = array('mobilabonnemang', 'studentabonnemang', 'familjeabonnemang', 'foretagsabonnemang');
+    $categories_org = array('foretagsabonnemang');
+    $add_civic = false;
+    $add_org = false;
+    
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $product_id = $cart_item['product_id'];
+        $product_categories = wp_get_post_terms($product_id, 'product_cat', array('fields' => 'slugs'));
+        
+        if (array_intersect($categories_civic, $product_categories)) {
+            $add_civic = true;
+        }
+        if (array_intersect($categories_org, $product_categories)) {
+            $add_org = true;
+        }
+    }
+    
+    if ($add_civic) {
+        $saved_civic_value = WC()->session->get('social_civic_number', '');
+        $fields['billing']['social_civic_number'] = array(
             'type'        => 'text',
             'class'       => array('form-row-wide'),
-            'label'       => __('Personnummer (ÅÅÅÅMMDDXXXX)'),
-            'placeholder' => '19900101-1234 or 199001011234',
+            'label'       => __('Personnummer'),
+            'placeholder' => 'ÅÅÅÅMMDDXXXX',
             'required'    => true,
-            'priority'    => 5, // Ensures it appears first
-            'default'     => $saved_value,
-        )
-    );
+            'priority'    => 5,
+            'default'     => $saved_civic_value,
+        );
+    }
     
-    $fields['billing'] = array_merge($social_civic_field, $fields['billing']);
+    if ($add_org) {
+        $saved_org_value = WC()->session->get('organization_number', '');
+        $fields['billing']['organization_number'] = array(
+            'type'        => 'text',
+            'class'       => array('form-row-wide'),
+            'label'       => __('Organisationsnummer'),
+            'placeholder' => 'ÅÅÅÅMMDDXXXX',
+            'required'    => true,
+            'priority'    => 6,
+            'default'     => $saved_org_value,
+        );
+    }
     
     return $fields;
 }
 
-// Validate the Social Civic Number format
-add_action('woocommerce_checkout_process', 'validate_social_civic_number');
-function validate_social_civic_number() {
-    if (!isset($_POST['social_civic_number'])) return;
-
-    $social_number = $_POST['social_civic_number'];
-    if (!preg_match('/^\d{8}-\d{4}$|^\d{12}$/', $social_number)) {
+// Validate the Social Civic Number and Organization Number format
+add_action('woocommerce_checkout_process', 'validate_social_civic_and_org_number');
+function validate_social_civic_and_org_number() {
+    if (isset($_POST['social_civic_number']) && !preg_match('/^\d{8}-\d{4}$|^\d{12}$/', $_POST['social_civic_number'])) {
         wc_add_notice(__('Fyll i ett tolvsiffrigt personnummer enligt formatet ÅÅÅÅMMDDXXXX.'), 'error');
     }
-}
-
-// Save the Social Civic Number to order meta
-add_action('woocommerce_checkout_update_order_meta', 'save_social_civic_number');
-function save_social_civic_number($order_id) {
-    if (!empty($_POST['social_civic_number'])) {
-        $social_number = preg_replace('/[^0-9]/', '', $_POST['social_civic_number']);
-        update_post_meta($order_id, '_social_civic_number', $social_number);
+    if (isset($_POST['organization_number']) && !preg_match('/^\d{8}-\d{4}$|^\d{12}$/', $_POST['organization_number'])) {
+        wc_add_notice(__('Fyll i ett korrekt organisationsnummer enligt formatet ÅÅÅÅMMDDXXXX.'), 'error');
     }
 }
 
-// Display Social Civic Number in the admin order panel
-add_action('woocommerce_admin_order_data_after_billing_address', 'display_social_civic_number_admin', 10, 1);
-function display_social_civic_number_admin($order) {
+// Save the Social Civic Number and Organization Number to order meta
+add_action('woocommerce_checkout_update_order_meta', 'save_social_civic_and_org_number');
+function save_social_civic_and_org_number($order_id) {
+    if (!empty($_POST['social_civic_number'])) {
+        update_post_meta($order_id, '_social_civic_number', preg_replace('/[^0-9]/', '', $_POST['social_civic_number']));
+    }
+    if (!empty($_POST['organization_number'])) {
+        update_post_meta($order_id, '_organization_number', preg_replace('/[^0-9]/', '', $_POST['organization_number']));
+    }
+}
+
+// Display Social Civic Number and Organization Number in the admin order panel
+add_action('woocommerce_admin_order_data_after_billing_address', 'display_social_civic_and_org_number_admin', 10, 1);
+function display_social_civic_and_org_number_admin($order) {
     $social_number = get_post_meta($order->get_id(), '_social_civic_number', true);
+    $org_number = get_post_meta($order->get_id(), '_organization_number', true);
     if ($social_number) {
         echo '<p><strong>' . __('Personnummer') . ':</strong> ' . esc_html($social_number) . '</p>';
     }
+    if ($org_number) {
+        echo '<p><strong>' . __('Organisationsnummer') . ':</strong> ' . esc_html($org_number) . '</p>';
+    }
 }
 
-add_action('woocommerce_thankyou', 'display_social_civic_number_thankyou', 5);
-function display_social_civic_number_thankyou($order_id) {
+// Display Social Civic Number and Organization Number on the Thank You page
+add_action('woocommerce_thankyou', 'display_social_civic_and_org_number_thankyou', 5);
+function display_social_civic_and_org_number_thankyou($order_id) {
     $social_number = get_post_meta($order_id, '_social_civic_number', true);
-    if ($social_number) {
+    $org_number = get_post_meta($order_id, '_organization_number', true);
+    if ($social_number || $org_number) {
         ?>
-        	<ul class="woocommerce-order-overview woocommerce-thankyou-order-details order_details social-civic-number">
+        <ul class="woocommerce-order-overview woocommerce-thankyou-order-details order_details social-civic-number">
+            <?php if ($social_number) { ?>
                 <li class="woocommerce-order-overview__order order">
-                    <?php esc_html_e( 'Personnummer:', 'woocommerce' ); ?>
-                    <strong><?php echo esc_html($social_number); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></strong>
+                    <?php esc_html_e('Personnummer:', 'woocommerce'); ?>
+                    <strong><?php echo esc_html($social_number); ?></strong>
                 </li>
-            </ul>
+            <?php } ?>
+            <?php if ($org_number) { ?>
+                <li class="woocommerce-order-overview__order order">
+                    <?php esc_html_e('Organisationsnummer:', 'woocommerce'); ?>
+                    <strong><?php echo esc_html($org_number); ?></strong>
+                </li>
+            <?php } ?>
+        </ul>
         <?php
     }
 }
 
-// Add custom CSS to modify WooCommerce Thank You page order details
-add_action('wp_enqueue_scripts', 'custom_checkout_styles');
-function custom_checkout_styles() {
-    wp_enqueue_style('custom-checkout-css', plugin_dir_url(__FILE__) . 'custom-checkout.css');
-}
-
-// Add Social Civic Number to WooCommerce confirmation emails
-add_action('woocommerce_email_order_meta', 'add_social_civic_number_to_email', 10, 3);
-function add_social_civic_number_to_email($order, $sent_to_admin, $plain_text) {
+// Add Social Civic Number and Organization Number to WooCommerce confirmation emails
+add_action('woocommerce_email_order_meta', 'add_social_civic_and_org_number_to_email', 10, 3);
+function add_social_civic_and_org_number_to_email($order, $sent_to_admin, $plain_text) {
     $social_number = get_post_meta($order->get_id(), '_social_civic_number', true);
+    $org_number = get_post_meta($order->get_id(), '_organization_number', true);
     if ($social_number) {
-        echo '<p><strong>' . __('Social Civic Number') . ':</strong> ' . esc_html($social_number) . '</p>';
+        echo '<p><strong>' . __('Personnummer') . ':</strong> ' . esc_html($social_number) . '</p>';
+    }
+    if ($org_number) {
+        echo '<p><strong>' . __('Organisationsnummer') . ':</strong> ' . esc_html($org_number) . '</p>';
     }
 }
 
